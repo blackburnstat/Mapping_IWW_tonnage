@@ -14,13 +14,12 @@ library(eurostat)
 library(lubridate)
 library(stplanr)
 library(leaflet)
-#this file maps eurostat origin-destination tonnage quantities onto the real shape of the inland waterway network
+#this file maps eurostat origin-destination tonnage quantities onto the real shape of the UNECE inland waterway network for 2020
 
 ####import Modified IWW network. A messy "download file" appraoch via the UNECE wiki####
-download.file("https://wiki.unece.org/download/attachments/115540014/Shape.zip?version=1&modificationDate=1655840838175&api=v2&download=true","C:/temp/alex3.zip",mode="wb")
+download.file("https://wiki.unece.org/download/attachments/115540014/Shape.zip?version=3&modificationDate=1663061685871&api=v2","C:/temp/alex3.zip",mode="wb")
 unzip("C:/temp/alex3.zip",exdir = "C:/temp/alex4")
 IWW_network<-st_read("C:/temp/alex4")
-
 ####function for complete conversion of SHP to network####
 #Explained in the webpage https://r-spatial.org/r/2019/09/26/spatial-networks.html #
 sf_to_tidygraph = function(x, directed = TRUE) {
@@ -78,7 +77,7 @@ colnames(IWWData)<-c('Good', 'UnloadRegion','LoadRegion','unit','Country','Time'
 IWWData$Time<-year(IWWData$Time)
 #only choose proper nuts regions, and total goods, one year
 IWWTest<-IWWData %>% 
-  filter(unit=="THS_T",str_length(UnloadRegion)==4,str_length(LoadRegion)==4,Time==2019,Good=="TOTAL")
+  filter(unit=="THS_T",str_length(UnloadRegion)==4,str_length(LoadRegion)==4,Time==2020,Good=="TOTAL")
 IWWTest$unit<-NULL
 rm(IWWData) #tidyup
 #next bit takes the maximum value of trade reported A>B (Austria+Slovakia both report AT31>SK01)
@@ -89,7 +88,7 @@ IntNuts<-merge(IWWTest,centroids,by.x="LoadRegion",by.y="ID")
 IntNuts<-merge(IntNuts,centroids,by.x="UnloadRegion",by.y="ID")
 colnames(IntNuts)<-c("UnloadXX","LoadXX","tonnage","o_long","o_lat","d_long","d_lat")
 #Arrange by size and remove A>A volumes
-#if we don't filter them out, nothing happens as the map is based on edges and not vertices (not sure)
+#if we don't filter them out, nothing happens as the map is based on edges and not vertices (not sure??)
 IntNuts<-IntNuts %>%
   arrange(desc(tonnage)) %>%
   filter(UnloadXX!=LoadXX)
@@ -154,22 +153,8 @@ x2<-32
 y1<-43
 y2<-64
 ####finally, the graph####
-ggplot() + #the ggplot version
-  geom_polygon(data=Euro2,mapping=aes(x=long,y=lat,group=group),color="grey",fill="beige")+
-  geom_sf(data = graph %>% activate(edges) %>% as_tibble() %>% st_as_sf(), col = 'darkgrey') +
-  geom_sf(data = overlined_segments, lwd = (overlined_segments$tonnage^0.41)/30, col = 'red')+
-  coord_sf(xlim=c(x1,x2),ylim=c(y1,y2),expand=TRUE,crs = st_crs(4326))+
-  theme_classic()
-####can we map it interactively in Leaflet??####
-#result is partial success, but shows start and end-point connection for some reason.
-
-#necessary to show in leaflet for some reason
 overlined_segments<-st_transform(overlined_segments, "+init=epsg:4326")
-
-leaflet(overlined_segments) %>% 
-  addProviderTiles("CartoDB.Positron") %>% 
-   addPolylines(weight = overlined_segments$tonnage/10000) %>% 
-  addPolygons(weight = overlined_segments$tonnage/10000)
-#polylines seems to work correctly, but misses out many country data (eg france)
-#polygons seems to work correctly but connects start and end points
+leaflet() %>% 
+  addPolylines(data = overlined_segments, weight = ~(tonnage/300)^0.54, opacity = 0.98,fill =FALSE,smoothFactor = 2,label = paste0(overlined_segments$tonnage," thousand tonnes passed in",Year)) %>%
+  addProviderTiles('CartoDB.Positron')
 
