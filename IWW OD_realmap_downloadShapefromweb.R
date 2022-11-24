@@ -16,8 +16,8 @@ library(stplanr)
 library(leaflet)
 #this file maps eurostat origin-destination tonnage quantities onto the real shape of the UNECE inland waterway network for 2020
 
-####import Modified IWW network. A messy "download file" appraoch via the UNECE wiki####
-download.file("https://wiki.unece.org/download/attachments/115540014/Shape.zip?version=3&modificationDate=1663061685871&api=v2","C:/temp/alex3.zip",mode="wb")
+####import Modified IWW network. A messy "download file" appraoch via the UNECE wiki (updated 2022-11-24)####
+download.file("https://wiki.unece.org/download/attachments/115540014/Shape.zip?version=5&modificationDate=1668682363048&api=v2","C:/temp/alex3.zip",mode="wb")
 unzip("C:/temp/alex3.zip",exdir = "C:/temp/alex4")
 IWW_network<-st_read("C:/temp/alex4")
 ####function for complete conversion of SHP to network####
@@ -87,11 +87,14 @@ IWWTest<-IWWTest%>%
 IntNuts<-merge(IWWTest,centroids,by.x="LoadRegion",by.y="ID")
 IntNuts<-merge(IntNuts,centroids,by.x="UnloadRegion",by.y="ID")
 colnames(IntNuts)<-c("UnloadXX","LoadXX","tonnage","o_long","o_lat","d_long","d_lat")
-#Arrange by size and remove A>A volumes
-#if we don't filter them out, nothing happens as the map is based on edges and not vertices (not sure??)
+#Arrange by size 
 IntNuts<-IntNuts %>%
-  arrange(desc(tonnage)) %>%
-  filter(UnloadXX!=LoadXX)
+  arrange(desc(tonnage)) 
+#06/10/2022 TO include region X to region X values, the following is used.
+IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$o_long<-IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$o_long+5
+IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$o_lat<-IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$o_lat+5
+IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$d_long<-IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$d_long+5
+IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$d_lat<-IntNuts[IntNuts$UnloadXX==IntNuts$LoadXX,]$d_lat+5
 length_NUTS<-nrow(IntNuts)
 #### now translate the OD points onto the real network####
 #choose the nodes 
@@ -124,7 +127,7 @@ for (i in 1:length_NUTS){
             pull(SECTION_LE)
   )$epath
 }
-#final step: the below works but defines 1909 objects which is terrible. Can we make this into a list too?
+#final step: the below works but defines thousands of separate objects which is terrible. Can we make this into a list too?
 for (i in 1:length_NUTS){
   assign(paste0("path_graph",i),   graph %>%
         subgraph.edges(eids = my_big_epath_list[i] %>% 
@@ -135,24 +138,14 @@ for (i in 1:length_NUTS){
                          as_tibble() %>%
                          st_as_sf())
         }
-#now we just need all 1900 things together as a list to feed into overline
+#now we just need all ~1900 things together as a list to feed into overline
 list_paths<-mget(ls(pattern='^path\\_graph\\d'))
-#next lines takes 15-30 minutes for total goods (to test the code, use a single good eg "GT01")
+#next lines takes 10 minutes+ for total goods (to test the code, use a single good eg "GT01")
 combined_graphs<-do.call(rbind,list_paths)
 combined_graphs2<-st_set_crs(combined_graphs,3857)
-# test1<-cc %>%
-#   st_as_sf()
- #setting the crs at different points is sometimes necessary, don't know why
 #overline discussed here https://github.com/ropensci/stplanr/blob/HEAD/R/overline.R
 overlined_segments<-overline(combined_graphs,attrib="tonnage")
 ####Map the results####
-Euro2<-map_data(map="world") #define basemap
-#coordinates for a reasonable Euro map
-x1<--2
-x2<-32
-y1<-43
-y2<-64
-####finally, the graph####
 overlined_segments<-st_transform(overlined_segments, "+init=epsg:4326")
 leaflet() %>% 
   addPolylines(data = overlined_segments, weight = ~(tonnage/300)^0.54, opacity = 0.98,fill =FALSE,smoothFactor = 2,label = paste0(overlined_segments$tonnage," thousand tonnes passed in",Year)) %>%
